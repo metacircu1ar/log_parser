@@ -74,16 +74,34 @@ struct FileData
     vector<LineData> line_data;
 };
 
+const int MAX_BUFFER_SIZE = 24;
+
 struct SearchData
 {
     uint64_t start_ms = 0;
     uint64_t end_ms = ~0ULL;
     uint64_t search_flags = 0;
+    char substring[MAX_BUFFER_SIZE] = { 0 };
+
+    SearchData() = default;
+
+    SearchData(const SearchData& other)
+    {
+        *this = other;
+    }
+
+    void operator=(const SearchData& other)
+    {
+        strcpy(substring, other.substring);
+        start_ms = other.start_ms;
+        end_ms = other.end_ms;
+        search_flags = other.search_flags;
+    }
 
     bool operator!=(const SearchData& other)
     {
         return start_ms != other.start_ms || end_ms != other.end_ms ||
-               search_flags != other.search_flags;
+               search_flags != other.search_flags || strcmp(substring, other.substring);
     }
 };
 
@@ -96,8 +114,8 @@ struct LogLevelUIState
 
 struct FilterByDateUIState
 {
-    string start_date = "15.02.2023 00:00:00.000";
-    string end_date = "15.02.2023 00:00:59.999";
+    char start_date[MAX_BUFFER_SIZE] = "15.02.2023 00:00:00.000";
+    char end_date[MAX_BUFFER_SIZE] = "15.02.2023 00:00:59.999";
 };
 
 struct PaginationUIState
@@ -236,7 +254,8 @@ void search(const SearchData& search_data, const FileData& file_data, vector<cha
 
         if (within_time_start & within_time_end & has_flags)
         {
-            output.push_back(line_data[i].line);
+            if (strstr(line_data[i].line, search_data.substring))
+                output.push_back(line_data[i].line);
         }
     }
 
@@ -246,7 +265,7 @@ void search(const SearchData& search_data, const FileData& file_data, vector<cha
          << " sec" << endl;
 }
 
-bool validate_input_string(const string& input)
+bool validate_input_string(const char* input)
 {
     static const regex r("^\\d{2}\\.\\d{2}\\.\\d{4}\\s\\d{2}:\\d{2}:\\d{2}\\.\\d{3}$");
     return regex_match(input, r);
@@ -300,6 +319,8 @@ int main()
     FilterByDateUIState date;
     LogLevelUIState log_level_UI_state;
 
+    char text[MAX_BUFFER_SIZE] = { 0 };
+
     for (bool done = false; !done;)
     {
         SDL_Event event;
@@ -317,28 +338,29 @@ int main()
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::Begin("Filter by category:");
+        SearchData current_search_data = saved_default_data;
+
+        ImGui::Begin("Filtering:");
         ImGui::Checkbox("Info", &log_level_UI_state.show_info);
         ImGui::Checkbox("Debug", &log_level_UI_state.show_debug);
         ImGui::Checkbox("Critical", &log_level_UI_state.show_critical);
-        ImGui::End();
 
-        SearchData current_search_data = saved_default_data;
-
-        ImGui::Begin("Filter by date:");
-
-        if (ImGui::InputText("From", date.start_date.data(), date.start_date.size() + 1,
+        if (ImGui::InputText("From date", date.start_date, MAX_BUFFER_SIZE,
                              ImGuiInputTextFlags_EnterReturnsTrue) ||
-            ImGui::InputText("To", date.end_date.data(), date.end_date.size() + 1,
+            ImGui::InputText("To date", date.end_date, MAX_BUFFER_SIZE,
                              ImGuiInputTextFlags_EnterReturnsTrue))
         {
             if (validate_input_string(date.start_date) && validate_input_string(date.end_date))
             {
-                current_search_data.end_ms = reinterpret_cast<DateTime*>(date.end_date.data())
-                                                 ->toUint();
-                current_search_data.start_ms = reinterpret_cast<DateTime*>(date.start_date.data())
-                                                   ->toUint();
+                current_search_data.end_ms = reinterpret_cast<DateTime*>(date.end_date)->toUint();
+                current_search_data.start_ms = reinterpret_cast<DateTime*>(date.start_date)->toUint();
             }
+        }
+
+        if (ImGui::InputText("Substring", text, MAX_BUFFER_SIZE,
+                             ImGuiInputTextFlags_EnterReturnsTrue))
+        {
+            strcpy(current_search_data.substring, text);
         }
 
         ImGui::End();

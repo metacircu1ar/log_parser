@@ -65,23 +65,43 @@ struct LineData
 {
     uint64_t time = 0;
     uint32_t flags = 0;
-    char* line = nullptr;
+    char* whole_line = nullptr;
+};
+
+const int SOURCE_NAME_BUFFER_MAX_SIZE = 100;
+const int SEARCH_SUBSTRING_BUFFER_MAX_SIZE = 100;
+const int DATE_BUFFER_MAX_SIZE = 24;
+
+struct SourceFlagData
+{
+    char source_name[SOURCE_NAME_BUFFER_MAX_SIZE] = { 0 };
+    uint32_t source_flag = 0; // 0 means it is unset
+};
+
+struct SourceFlagHashTable
+{
+    static const int TABLE_MAX_SIZE = 100;
+
+    // We start at 1 << 3 because the first 3 bits
+    // are occupied by 3 log level flags
+    uint32_t flag_generator = 1 << 3;
+
+    SourceFlagData table[TABLE_MAX_SIZE];
 };
 
 struct FileData
 {
     vector<char> buffer;
     vector<LineData> line_data;
+    SourceFlagHashTable source_flag_table;
 };
-
-const int MAX_BUFFER_SIZE = 24;
 
 struct SearchData
 {
     uint64_t start_ms = 0;
     uint64_t end_ms = ~0ULL;
     uint64_t search_flags = 0;
-    char substring[MAX_BUFFER_SIZE] = { 0 };
+    char substring[SEARCH_SUBSTRING_BUFFER_MAX_SIZE] = { 0 };
 
     SearchData() = default;
 
@@ -107,43 +127,74 @@ struct SearchData
 
 struct LogLevelUIState
 {
-    bool show_info = false;
-    bool show_debug = false;
-    bool show_critical = false;
+    bool show_info = true;
+    bool show_debug = true;
+    bool show_critical = true;
 };
+
+struct SourceUIState
+{
+    string name;
+    uint32_t flag = 0;
+    bool show = true;
+};
+
+vector<SourceUIState> source_flag_hash_table_to_sources_ui_state(SourceFlagHashTable& t)
+{
+    vector<SourceUIState> result;
+
+    for (int i = 0; i < t.TABLE_MAX_SIZE; ++i)
+    {
+        if (t.table[i].source_flag != 0)
+        {
+            SourceUIState state;
+            state.name = t.table[i].source_name;
+            state.flag = t.table[i].source_flag;
+            state.show = true;
+            result.push_back(state);
+        }
+    }
+
+    sort(result.begin(), result.end(), [](const SourceUIState& l, const SourceUIState& r) {
+        return l.name < r.name;
+    });
+
+    return result;
+}
 
 struct FilterByDateUIState
 {
-    char start_date[MAX_BUFFER_SIZE] = "15.02.2023 00:00:00.000";
-    char end_date[MAX_BUFFER_SIZE] = "15.02.2023 00:00:59.999";
+    char start_date[DATE_BUFFER_MAX_SIZE] = "15.02.2023 00:00:00.000";
+    char end_date[DATE_BUFFER_MAX_SIZE] = "15.02.2023 00:00:59.999";
 };
 
 struct PaginationUIState
 {
-    const size_t page_size = 100;
+    static const size_t MAX_PAGE_SIZE = 100;
+
     size_t start_index = 0;
     size_t end_index = 0;
 
     void reset(size_t lines)
     {
         start_index = 0;
-        end_index = min(lines, page_size);
+        end_index = min(lines, MAX_PAGE_SIZE);
     }
 
     void next(size_t lines)
     {
-        size_t new_start_index = start_index + page_size;
+        size_t new_start_index = start_index + MAX_PAGE_SIZE;
         if (new_start_index <= lines)
             start_index = new_start_index;
-        end_index = min(lines, start_index + page_size);
+        end_index = min(lines, start_index + MAX_PAGE_SIZE);
     }
 
     void prev(size_t lines)
     {
-        if (start_index >= page_size)
+        if (start_index >= MAX_PAGE_SIZE)
         {
-            start_index -= page_size;
-            end_index = min(lines, start_index + page_size);
+            start_index -= MAX_PAGE_SIZE;
+            end_index = min(lines, start_index + MAX_PAGE_SIZE);
         }
         else
             reset(lines);
@@ -165,12 +216,58 @@ inline uint64_t log_level_to_flag(char* logLevel)
                               : ((firstLetter == 'D') ? LogLevel::Debug : LogLevel::Critical);
 }
 
-inline uint64_t bools_to_flags(const LogLevelUIState& state)
+inline uint64_t log_level_ui_state_to_flags(const LogLevelUIState& state)
 {
     const uint64_t info = LogLevel::Info * state.show_info;
     const uint64_t debug = LogLevel::Debug * state.show_debug;
     const uint64_t critical = LogLevel::Critical * state.show_critical;
+
     return info | debug | critical;
+}
+
+inline uint32_t source_to_flag(char* source, SourceFlagHashTable& t)
+{
+    uint32_t hash = 0;
+
+    char buffer[SOURCE_NAME_BUFFER_MAX_SIZE] = { 0 };
+
+    for (int i = 0; source[i] != ']'; ++i)
+    {
+        assert(i < SOURCE_NAME_BUFFER_MAX_SIZE && "Source name buffer size exceeded");
+        buffer[i] = source[i];
+        hash = (hash ^ source[i]) * 0x1000193;
+    }
+
+    uint32_t i = hash % t.TABLE_MAX_SIZE;
+
+    for (; i < t.TABLE_MAX_SIZE; ++i)
+    {
+        if (t.table[i].source_flag == 0)
+        {
+            strcpy(t.table[i].source_name, buffer);
+            assert(table.flag_generator != 0 && "We ran out of flags");
+            t.table[i].source_flag = t.flag_generator;
+            t.flag_generator <<= 1;
+            return t.table[i].source_flag;
+        }
+        else if (strcmp(t.table[i].source_name, buffer) == 0)
+            return t.table[i].source_flag;
+    }
+
+    assert(i < t.TABLE_MAX_SIZE && "Hash table is full");
+    return 0;
+}
+
+inline uint64_t sources_ui_state_to_flags(const vector<SourceUIState>& states)
+{
+    uint32_t acc = 0;
+
+    for (const SourceUIState& state : states)
+    {
+        acc |= state.flag * state.show;
+    }
+
+    return acc;
 }
 
 FileData build_file_data(const string& fileName)
@@ -203,7 +300,7 @@ FileData build_file_data(const string& fileName)
 
         DateTime& d = *reinterpret_cast<DateTime*>(&buffer[i]);
         ld.time = d.toUint();
-        ld.line = line_start;
+        ld.whole_line = line_start;
 
         ++i;                   // skip ]
         i += sizeof(DateTime); // skip datetime
@@ -214,6 +311,9 @@ FileData build_file_data(const string& fileName)
         while (i < size && buffer[i] != ']')
             ++i; // skip until ]
         ++i;     // skip ]
+        ++i;     // skip [
+
+        ld.flags |= source_to_flag(&buffer[i], file_data.source_flag_table);
 
         file_data.line_data.push_back(ld);
 
@@ -254,8 +354,8 @@ void search(const SearchData& search_data, const FileData& file_data, vector<cha
 
         if (within_time_start & within_time_end & has_flags)
         {
-            if (strstr(line_data[i].line, search_data.substring))
-                output.push_back(line_data[i].line);
+            if (strstr(line_data[i].whole_line, search_data.substring))
+                output.push_back(line_data[i].whole_line);
         }
     }
 
@@ -318,8 +418,10 @@ int main()
     PaginationUIState page;
     FilterByDateUIState date;
     LogLevelUIState log_level_UI_state;
+    vector<SourceUIState> sources_UI_state = source_flag_hash_table_to_sources_ui_state(
+        file_data.source_flag_table);
 
-    char text[MAX_BUFFER_SIZE] = { 0 };
+    char substring_text[SEARCH_SUBSTRING_BUFFER_MAX_SIZE] = { 0 };
 
     for (bool done = false; !done;)
     {
@@ -341,13 +443,19 @@ int main()
         SearchData current_search_data = saved_default_data;
 
         ImGui::Begin("Filtering:");
+
+        ImGui::Text("%s", "Log categories:");
+
         ImGui::Checkbox("Info", &log_level_UI_state.show_info);
         ImGui::Checkbox("Debug", &log_level_UI_state.show_debug);
         ImGui::Checkbox("Critical", &log_level_UI_state.show_critical);
 
-        if (ImGui::InputText("From date", date.start_date, MAX_BUFFER_SIZE,
+        ImGui::Text("%s", "");
+
+        ImGui::Text("%s", "Date:");
+        if (ImGui::InputText("From", date.start_date, DATE_BUFFER_MAX_SIZE,
                              ImGuiInputTextFlags_EnterReturnsTrue) ||
-            ImGui::InputText("To date", date.end_date, MAX_BUFFER_SIZE,
+            ImGui::InputText("To", date.end_date, DATE_BUFFER_MAX_SIZE,
                              ImGuiInputTextFlags_EnterReturnsTrue))
         {
             if (validate_input_string(date.start_date) && validate_input_string(date.end_date))
@@ -357,15 +465,26 @@ int main()
             }
         }
 
-        if (ImGui::InputText("Substring", text, MAX_BUFFER_SIZE,
+        ImGui::Text("%s", "");
+
+        ImGui::Text("%s", "Substring:");
+
+        if (ImGui::InputText("Enter", substring_text, SEARCH_SUBSTRING_BUFFER_MAX_SIZE,
                              ImGuiInputTextFlags_EnterReturnsTrue))
         {
-            strcpy(current_search_data.substring, text);
+            strcpy(current_search_data.substring, substring_text);
         }
 
-        ImGui::End();
+        ImGui::Text("%s", "");
 
-        current_search_data.search_flags = bools_to_flags(log_level_UI_state);
+        ImGui::Text("%s", "Sources:");
+
+        for (SourceUIState& s : sources_UI_state)
+            ImGui::Checkbox(s.name.c_str(), &s.show);
+
+        current_search_data.search_flags = 0;
+        current_search_data.search_flags |= log_level_ui_state_to_flags(log_level_UI_state);
+        current_search_data.search_flags |= sources_ui_state_to_flags(sources_UI_state);
 
         if (saved_default_data != current_search_data)
         {
@@ -379,7 +498,9 @@ int main()
             search_thread.detach();
         }
 
-        ImGui::Begin("Text");
+        ImGui::End();
+
+        ImGui::Begin("Messages");
 
         if (ImGui::Button("Prev"))
         {

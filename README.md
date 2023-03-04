@@ -4,13 +4,13 @@ This is a small example of why I believe that all software should work nearly in
 # What
 We have a log file of the following format:
 ```
-[15.02.2023 00:00:00.000][Info] Info message
-[15.02.2023 00:00:00.000][Debug] Debug message
-[15.02.2023 00:00:00.000][Critical] Critical message
+[15.02.2023 00:00:00.000][Info][Message source 1] Info message
+[15.02.2023 00:00:00.000][Debug][Message source 3] Debug message
+[15.02.2023 00:00:00.000][Critical][Message source 1] Critical message
 ```
-We need to filter it by timestamp, log category(Info, Debug or Critical), text contents and display the result.
+We need to filter it by timestamp, log category(Info, Debug or Critical), message source(which is a name of whatever component/subsystem generated the message), text contents and display the result.
   
-We load the entire 522MB log file into RAM in a single read. Next, we parse the file data for searching by converting date-time values to integers and log categories to flags and storing pointers to original file data and never copying anything. This approach to parsing is called in-place parsing. Reading the whole file and parsing takes just one second on the first execution and 0.4 seconds on subsequent executions. Additionally, filtering operations scan the entire data set and complete in approximately 50 milliseconds.
+We load the entire 631MB log file into RAM in a single read. Next, we parse the file data for searching by converting date-time values to integers, log categories and message sources to flags and storing pointers to original file data and never copying anything. This approach to parsing is called in-place parsing. Reading the whole file and parsing takes just 1.2 seconds on the first execution and 0.6 seconds on subsequent executions. Additionally, filtering operations scan the entire data set and complete in 50 milliseconds on average. That is filtering the whole 631mb dataset on all the criteria listed above.
 
 # Video demo
 

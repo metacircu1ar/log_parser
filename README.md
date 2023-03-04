@@ -22,3 +22,28 @@ We load the entire 631MB log file into RAM in a single read. Next, we parse the 
 sudo apt install ruby  
 ruby log_file_generator.rb
 ```
+
+# Measurement of cache misses 
+```
+sudo perf stat -e L1-dcache-loads,L1-dcache-load-misses,L1-dcache-stores,L1-dcache-store-misses ./LogParser
+
+File size: 631 megabytes
+Reading and parsing took 0.607671 sec
+Full dataset search time: 0.10743 sec
+Full dataset search time: 0.036007 sec
+Full dataset search time: 0.027128 sec
+Full dataset search time: 0.02233 sec
+
+ Performance counter stats for './LogParser':
+
+     2,002,286,737      L1-dcache-loads                                             
+       101,550,885      L1-dcache-load-misses     #    5.07% of all L1-dcache accesses
+       849,153,672      L1-dcache-stores                                            
+   <not supported>      L1-dcache-store-misses                                      
+
+       6.867509744 seconds time elapsed
+
+       0.794758000 seconds user
+       0.520706000 seconds sys
+
+```

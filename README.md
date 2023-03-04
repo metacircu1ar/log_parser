@@ -14,7 +14,7 @@ We load the entire 631MB log file into RAM in a single read. Next, we parse the 
 
 # Video demo
 
-[![Demo](https://img.youtube.com/vi/0mu0B4OE_IE/mqdefault.jpg)](https://www.youtube.com/watch?v=0mu0B4OE_IE)
+[![Demo](https://img.youtube.com/vi/g1aBjJtOzAo/mqdefault.jpg)](https://www.youtube.com/watch?v=g1aBjJtOzAo)
 
 
 # How to create a log example file
